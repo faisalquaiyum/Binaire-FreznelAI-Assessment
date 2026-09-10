@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
   Content,
@@ -9,19 +9,19 @@ import {
   Item,
   Picker,
   ProgressCircle,
+  NumberField,
+  SearchField,
   Text,
   TextField,
 } from "@adobe/react-spectrum";
 import {
   Check,
-  ChevronDown,
   Cloud,
   CloudOff,
   LogIn,
   LogOut,
   Search,
   SlidersHorizontal,
-  Sparkles,
   Star,
   X,
 } from "lucide-react";
@@ -62,6 +62,7 @@ export function App() {
   const [authPassword, setAuthPassword] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const lastFetchAt = useRef(0);
 
   useEffect(() => authService.watch(setUser), []);
 
@@ -78,20 +79,31 @@ export function App() {
 
   useEffect(() => {
     setLoading(true);
+    let refreshTimer: number | undefined;
     const timer = window.setTimeout(() => {
-      repository
-        .fetchModels(nameQuery || familyQuery)
-        .then((result) => {
-          setModels(result.models);
-          setFromCache(result.fromCache);
-          setLoading(false);
-        })
-        .catch((error: unknown) => {
-          if (!(error instanceof DOMException && error.name === "AbortError"))
+      const throttleWait = Math.max(
+        0,
+        500 - (Date.now() - lastFetchAt.current),
+      );
+      refreshTimer = window.setTimeout(() => {
+        lastFetchAt.current = Date.now();
+        repository
+          .fetchModels(nameQuery || familyQuery)
+          .then((result) => {
+            setModels(result.models);
+            setFromCache(result.fromCache);
             setLoading(false);
-        });
+          })
+          .catch((error: unknown) => {
+            if (!(error instanceof DOMException && error.name === "AbortError"))
+              setLoading(false);
+          });
+      }, throttleWait);
     }, 380);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+    };
   }, [nameQuery, familyQuery]);
 
   const catalog = useMemo(() => new ModelCatalog(models), [models]);
@@ -163,10 +175,12 @@ export function App() {
       <header className="topbar">
         <a className="brand" href="/">
           <span className="brand-mark">
-            <Sparkles size={17} />
+            <span>F</span>
+            <i />
           </span>
-          <span>
-            ATLAS <em>model index</em>
+          <span className="brand-name">
+            <strong>FREZNEL</strong>
+            <em>AI / by Faisal</em>
           </span>
         </a>
         <div className="topbar-actions">
@@ -221,38 +235,43 @@ export function App() {
       <main>
         <section className="intro">
           <div>
-            <p className="eyebrow">MODEL DISCOVERY / 02</p>
+            <p className="eyebrow">FREZNEL AI / MODEL DISCOVERY</p>
             <h1>
-              Find the right
+              Choose the model
               <br />
-              <i>intelligence.</i>
+              <i>for the work.</i>
             </h1>
           </div>
           <p className="intro-copy">
-            A focused index for comparing open models by capability,
-            architecture, weight, and file footprint.
+            Search an evolving catalog of open models, then compare capability,
+            architecture, weight, and file footprint before you commit.
           </p>
         </section>
 
         <section className="workspace">
+          <div className="workspace-heading">
+            <div>
+              <p className="eyebrow">MODEL CATALOG</p>
+              <h2>Search the index</h2>
+            </div>
+            <span>Filter by capability, family, architecture, or weight.</span>
+          </div>
           <div className="search-row">
-            <label className="search-box">
-              <Search size={19} />
-              <input
-                value={nameQuery}
-                onChange={(event) => setNameQuery(event.target.value)}
-                placeholder="Search model name or ID..."
-              />
-              <kbd>⌘ K</kbd>
-            </label>
-            <label className="family-box">
-              <span>FAMILY</span>
-              <input
-                value={familyQuery}
-                onChange={(event) => setFamilyQuery(event.target.value)}
-                placeholder="Any family"
-              />
-            </label>
+            <SearchField
+              aria-label="Search model name or ID"
+              UNSAFE_className="search-box"
+              value={nameQuery}
+              onChange={setNameQuery}
+              placeholder="Search model name or ID..."
+            />
+            <SearchField
+              aria-label="Search model family"
+              UNSAFE_className="family-search"
+              label="FAMILY"
+              value={familyQuery}
+              onChange={setFamilyQuery}
+              placeholder="Any family"
+            />
             <Button
               variant={showFilters ? "accent" : "primary"}
               UNSAFE_className={`filter-toggle ${showFilters ? "active" : ""}`}
@@ -295,22 +314,20 @@ export function App() {
               <div className="range-field">
                 <span>Safetensor files</span>
                 <div>
-                  <input
-                    type="number"
-                    min="0"
+                  <NumberField
+                    aria-label="Minimum safetensor files"
+                    UNSAFE_className="range-number"
+                    minValue={0}
                     value={filters.safetensorMin}
-                    onChange={(event) =>
-                      updateFilter("safetensorMin", Number(event.target.value))
-                    }
+                    onChange={(value) => updateFilter("safetensorMin", value)}
                   />
                   <b>to</b>
-                  <input
-                    type="number"
-                    min="0"
+                  <NumberField
+                    aria-label="Maximum safetensor files"
+                    UNSAFE_className="range-number"
+                    minValue={0}
                     value={filters.safetensorMax}
-                    onChange={(event) =>
-                      updateFilter("safetensorMax", Number(event.target.value))
-                    }
+                    onChange={(value) => updateFilter("safetensorMax", value)}
                   />
                 </div>
               </div>
@@ -323,19 +340,22 @@ export function App() {
             <span>
               <strong>{visibleModels.length}</strong> models indexed
             </span>
-            <label className="sort-select">
-              SORT BY{" "}
-              <select
-                value={sort}
-                onChange={(event) => setSort(event.target.value as SortOption)}
-              >
-                <option value="downloads-desc">Most downloaded</option>
-                <option value="files-desc">Safetensor files</option>
-                <option value="name-asc">Name, A to Z</option>
-                <option value="name-desc">Name, Z to A</option>
-              </select>
-              <ChevronDown size={14} />
-            </label>
+            <Picker
+              aria-label="Sort models"
+              label="SORT BY"
+              UNSAFE_className="sort-select"
+              selectedKey={sort}
+              onSelectionChange={(key) => setSort(String(key) as SortOption)}
+              items={[
+                { key: "downloads-desc", label: "Most downloaded" },
+                { key: "files-asc", label: "Safetensor files, low to high" },
+                { key: "files-desc", label: "Safetensor files, high to low" },
+                { key: "name-asc", label: "Name, A to Z" },
+                { key: "name-desc", label: "Name, Z to A" },
+              ]}
+            >
+              {(item) => <Item key={item.key}>{item.label}</Item>}
+            </Picker>
           </div>
           <div className="model-list">
             {loading && (
@@ -361,6 +381,12 @@ export function App() {
               </div>
             )}
           </div>
+          {selected.length > 0 && (
+            <ComparisonPanel
+              models={models.filter((model) => selected.includes(model.id))}
+              onClear={() => setSelected([])}
+            />
+          )}
         </section>
       </main>
       <footer>
@@ -375,6 +401,7 @@ export function App() {
             ? `${selected.length} selected for comparison`
             : "Select models to compare"}
         </span>
+        <span className="signature">Built by Faisal</span>
       </footer>
     </div>
   );
@@ -450,9 +477,13 @@ function AuthDialog({
       <Heading>
         {mode === "sign-up" ? "Create your account" : "Welcome back"}
       </Heading>
-      <Button variant="secondary" onPress={onClose} aria-label="Close authentication dialog">
-         <X size={16} />
-       </Button>
+      <Button
+        variant="secondary"
+        onPress={onClose}
+        aria-label="Close authentication dialog"
+      >
+        <X size={16} />
+      </Button>
       <Content>
         <Text>
           {configured
@@ -550,7 +581,7 @@ function ModelCard({
       </div>
       <div className="model-stats">
         <span>
-          <strong>{model.safetensorFiles}</strong> safetensors
+          <strong>{model.safetensorFiles ?? "TBD"}</strong> safetensors
         </span>
         <span>{model.useCase}</span>
         <span>
@@ -565,6 +596,57 @@ function ModelCard({
         {selected ? <Check size={16} /> : "+"}
       </button>
     </article>
+  );
+}
+
+function ComparisonPanel({
+  models,
+  onClear,
+}: {
+  models: ModelRecord[];
+  onClear: () => void;
+}) {
+  return (
+    <section
+      className="comparison-panel"
+      aria-label="Selected model comparison"
+    >
+      <div className="comparison-heading">
+        <div>
+          <span className="eyebrow">COMPARISON</span>
+          <strong>{models.length} selected</strong>
+        </div>
+        <button className="clear-button" onClick={onClear}>
+          <X size={14} /> Clear selection
+        </button>
+      </div>
+      <div className="comparison-grid">
+        {models.map((model) => (
+          <article key={model.id} className="comparison-item">
+            <h3>{model.name}</h3>
+            <p>{model.family}</p>
+            <dl>
+              <div>
+                <dt>Pipeline</dt>
+                <dd>{model.pipelineTag}</dd>
+              </div>
+              <div>
+                <dt>Architecture</dt>
+                <dd>{model.architecture}</dd>
+              </div>
+              <div>
+                <dt>Weight</dt>
+                <dd>{model.weightFormat}</dd>
+              </div>
+              <div>
+                <dt>Safetensors</dt>
+                <dd>{model.safetensorFiles ?? "TBD"}</dd>
+              </div>
+            </dl>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 

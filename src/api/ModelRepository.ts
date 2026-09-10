@@ -14,6 +14,13 @@ function readNumber(value: unknown, fallback = 0): number {
   return fallback;
 }
 
+function readSafetensorCount(value: unknown, fallback: number): number | null {
+  if (typeof value === 'string' && value.trim().toUpperCase() === 'TBD') return null;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && /^\d+$/.test(value.trim())) return Number(value);
+  return fallback > 0 ? fallback : null;
+}
+
 function normalizeModel(raw: Record<string, unknown>): ModelRecord {
   const id = String(raw.id || 'unknown/model');
   const hfTags = raw.hf_tags as Record<string, unknown> | undefined;
@@ -24,7 +31,8 @@ function normalizeModel(raw: Record<string, unknown>): ModelRecord {
   const name = String(raw.display_name || id.split('/').pop()?.replace(/[-_]/g, ' ') || id);
   const family = String(raw.family || name.split(' ')[0] || 'Other');
   const siblings = Array.isArray(raw.siblings) ? raw.siblings : [];
-  const safetensorFiles = readNumber(raw.safetensor_file_count, siblings.filter((file) => typeof file === 'object' && String((file as Record<string, unknown>).rfilename || '').endsWith('.safetensors')).length);
+  const siblingCount = siblings.filter((file) => typeof file === 'object' && String((file as Record<string, unknown>).rfilename || '').endsWith('.safetensors')).length;
+  const safetensorFiles = readSafetensorCount(raw.safetensor_file_count, siblingCount);
   const parameterLabel = name.match(/\b\d+(?:\.\d+)?(?:x\d+)?[BM]\b/i)?.[0].toUpperCase() || '—';
   return { id, author: String(raw.author_namespace || raw.author || id.split('/')[0] || 'community'), name, family, pipelineTag, architecture, useCase: String(raw.use_case || pipelineTag), weightFormat: String(raw.weight_format || tags.find((tag) => /^(bf16|fp16|int8|int4)/i.test(tag)) || 'Unspecified'), repoUrl: typeof raw.repo_url === 'string' ? raw.repo_url : `https://huggingface.co/${id}`, tags, downloads: readNumber(raw.downloads), likes: readNumber(raw.likes), safetensorFiles, parameterLabel, lastModified: String(raw.lastModified || new Date().toISOString()) };
 }
@@ -36,6 +44,14 @@ function extractModels(payload: unknown): Record<string, unknown>[] {
 
 export class ModelRepository {
   private requestController: AbortController | null = null;
+
+  private cacheModels(models: ModelRecord[]): void {
+    const serialized = JSON.stringify(models);
+    const temporaryKey = 'atlas-model-cache.pending';
+    localStorage.setItem(temporaryKey, serialized);
+    localStorage.setItem('atlas-model-cache', serialized);
+    localStorage.removeItem(temporaryKey);
+  }
 
   private readCache(): ModelRecord[] {
     try {
@@ -65,7 +81,7 @@ export class ModelRepository {
       })
       .then((payload) => {
         const models = extractModels(payload).map(normalizeModel);
-        localStorage.setItem('atlas-model-cache', JSON.stringify(models));
+        this.cacheModels(models);
         return { models, fromCache: false };
       })
       .catch((error: unknown) => {

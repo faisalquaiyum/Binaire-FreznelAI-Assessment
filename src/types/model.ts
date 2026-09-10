@@ -1,4 +1,4 @@
-export type SortOption = 'name-asc' | 'name-desc' | 'downloads-desc' | 'files-desc';
+export type SortOption = 'name-asc' | 'name-desc' | 'downloads-desc' | 'files-asc' | 'files-desc';
 
 export interface ModelRecord {
   id: string;
@@ -13,7 +13,7 @@ export interface ModelRecord {
   tags: string[];
   downloads: number;
   likes: number;
-  safetensorFiles: number;
+  safetensorFiles: number | null;
   parameterLabel: string;
   lastModified: string;
   private?: boolean;

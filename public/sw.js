@@ -1,5 +1,6 @@
-const SHELL_CACHE = "atlas-shell-v1";
-const DATA_CACHE = "atlas-data-v1";
+const SHELL_CACHE = "atlas-shell-v2";
+const DATA_CACHE = "atlas-data-v2";
+const CACHE_NAMES = [SHELL_CACHE, DATA_CACHE];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -11,7 +12,18 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => !CACHE_NAMES.includes(key))
+            .map((key) => caches.delete(key)),
+        ),
+      )
+      .then(() => self.clients.claim()),
+  );
 });
 
 self.addEventListener("fetch", (event) => {
@@ -41,16 +53,14 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith(
-    caches.match(event.request).then(
-      (cached) =>
-        cached ||
-        fetch(event.request).then((response) => {
-          const copy = response.clone();
-          return caches.open(SHELL_CACHE).then((cache) => {
-            cache.put(event.request, copy);
-            return response;
-          });
-        }),
-    ),
+    fetch(event.request)
+      .then((response) => {
+        const copy = response.clone();
+        return caches.open(SHELL_CACHE).then((cache) => {
+          cache.put(event.request, copy);
+          return response;
+        });
+      })
+      .catch(() => caches.match(event.request)),
   );
 });

@@ -1,0 +1,401 @@
+import { useEffect, useMemo, useState } from "react";
+import {
+  Check,
+  ChevronDown,
+  Cloud,
+  CloudOff,
+  LogIn,
+  LogOut,
+  Search,
+  SlidersHorizontal,
+  Sparkles,
+  Star,
+  X,
+} from "lucide-react";
+import { ModelRepository, fallbackModels } from "./api/ModelRepository";
+import { AuthService } from "./auth/AuthService";
+import { ModelCatalog } from "./models/ModelCatalog";
+import type { ModelFilters, ModelRecord, SortOption } from "./types/model";
+
+const repository = new ModelRepository();
+const authService = new AuthService();
+const initialFilters: ModelFilters = {
+  pipeline: "all",
+  family: "all",
+  architecture: "all",
+  weight: "all",
+  safetensorMin: 0,
+  safetensorMax: 1000,
+};
+
+export function App() {
+  const [models, setModels] = useState<ModelRecord[]>(fallbackModels);
+  const [nameQuery, setNameQuery] = useState("");
+  const [familyQuery, setFamilyQuery] = useState("");
+  const [filters, setFilters] = useState<ModelFilters>(initialFilters);
+  const [sort, setSort] = useState<SortOption>("downloads-desc");
+  const [loading, setLoading] = useState(false);
+  const [offline, setOffline] = useState(!navigator.onLine);
+  const [fromCache, setFromCache] = useState(true);
+  const [user, setUser] = useState<{
+    displayName?: string | null;
+    email?: string | null;
+  } | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [showFilters, setShowFilters] = useState(false);
+
+  useEffect(() => authService.watch(setUser), []);
+
+  useEffect(() => {
+    const online = () => setOffline(false);
+    const offlineEvent = () => setOffline(true);
+    window.addEventListener("online", online);
+    window.addEventListener("offline", offlineEvent);
+    return () => {
+      window.removeEventListener("online", online);
+      window.removeEventListener("offline", offlineEvent);
+    };
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    const timer = window.setTimeout(() => {
+      repository
+        .fetchModels(nameQuery || familyQuery)
+        .then((result) => {
+          setModels(result.models);
+          setFromCache(result.fromCache);
+          setLoading(false);
+        })
+        .catch((error: unknown) => {
+          if (!(error instanceof DOMException && error.name === "AbortError"))
+            setLoading(false);
+        });
+    }, 380);
+    return () => window.clearTimeout(timer);
+  }, [nameQuery, familyQuery]);
+
+  const catalog = useMemo(() => new ModelCatalog(models), [models]);
+  const visibleModels = useMemo(
+    () => catalog.select({ nameQuery, familyQuery, filters, sort }),
+    [catalog, nameQuery, familyQuery, filters, sort],
+  );
+  const options = useMemo(
+    () => ({
+      pipelines: [...new Set(models.map((model) => model.pipelineTag))].sort(),
+      families: [...new Set(models.map((model) => model.family))].sort(),
+      architectures: [
+        ...new Set(models.map((model) => model.architecture)),
+      ].sort(),
+      weights: [
+        ...new Set(
+          models
+            .map((model) => model.weightFormat)
+            .filter((weight) => weight !== "Unspecified"),
+        ),
+      ].sort(),
+    }),
+    [models],
+  );
+
+  const toggleSelected = (id: string) =>
+    setSelected((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    );
+  const updateFilter = (key: keyof ModelFilters, value: string | number) =>
+    setFilters((current) => ({ ...current, [key]: value }));
+  const clearFilters = () => {
+    setFilters(initialFilters);
+    setNameQuery("");
+    setFamilyQuery("");
+  };
+
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <a className="brand" href="/">
+          <span className="brand-mark">
+            <Sparkles size={17} />
+          </span>
+          <span>
+            ATLAS <em>model index</em>
+          </span>
+        </a>
+        <div className="topbar-actions">
+          <span className={`connection ${offline ? "is-offline" : ""}`}>
+            <span className="status-dot" />
+            {offline ? "Offline mode" : "Live API"}
+            {fromCache && <small> / cached</small>}
+          </span>
+          {user ? (
+            <button
+              className="user-chip"
+              onClick={() => authService.signOut()}
+              title="Sign out"
+            >
+              <span>{user.displayName?.charAt(0) || "D"}</span>
+              {user.displayName}
+              <LogOut size={14} />
+            </button>
+          ) : (
+            <button
+              className="text-button"
+              onClick={() => authService.signIn()}
+            >
+              <LogIn size={15} /> Sign in
+            </button>
+          )}
+        </div>
+      </header>
+
+      <main>
+        <section className="intro">
+          <div>
+            <p className="eyebrow">MODEL DISCOVERY / 02</p>
+            <h1>
+              Find the right
+              <br />
+              <i>intelligence.</i>
+            </h1>
+          </div>
+          <p className="intro-copy">
+            A focused index for comparing open models by capability,
+            architecture, weight, and file footprint.
+          </p>
+        </section>
+
+        <section className="workspace">
+          <div className="search-row">
+            <label className="search-box">
+              <Search size={19} />
+              <input
+                value={nameQuery}
+                onChange={(event) => setNameQuery(event.target.value)}
+                placeholder="Search model name or ID..."
+              />
+              <kbd>⌘ K</kbd>
+            </label>
+            <label className="family-box">
+              <span>FAMILY</span>
+              <input
+                value={familyQuery}
+                onChange={(event) => setFamilyQuery(event.target.value)}
+                placeholder="Any family"
+              />
+            </label>
+            <button
+              className={`filter-toggle ${showFilters ? "active" : ""}`}
+              onClick={() => setShowFilters((current) => !current)}
+            >
+              <SlidersHorizontal size={17} /> Filters{" "}
+              <span>
+                {Object.values(filters).filter(
+                  (value) => value !== "all" && value !== 0 && value !== 1000,
+                ).length || ""}
+              </span>
+            </button>
+          </div>
+          {showFilters && (
+            <aside className="filter-panel">
+              <FilterSelect
+                label="Pipeline"
+                value={filters.pipeline}
+                options={options.pipelines}
+                onChange={(value) => updateFilter("pipeline", value)}
+              />
+              <FilterSelect
+                label="Family tag"
+                value={filters.family}
+                options={options.families}
+                onChange={(value) => updateFilter("family", value)}
+              />
+              <FilterSelect
+                label="Architecture"
+                value={filters.architecture}
+                options={options.architectures}
+                onChange={(value) => updateFilter("architecture", value)}
+              />
+              <FilterSelect
+                label="Weight"
+                value={filters.weight}
+                options={options.weights}
+                onChange={(value) => updateFilter("weight", value)}
+              />
+              <div className="range-field">
+                <span>Safetensor files</span>
+                <div>
+                  <input
+                    type="number"
+                    min="0"
+                    value={filters.safetensorMin}
+                    onChange={(event) =>
+                      updateFilter("safetensorMin", Number(event.target.value))
+                    }
+                  />
+                  <b>to</b>
+                  <input
+                    type="number"
+                    min="0"
+                    value={filters.safetensorMax}
+                    onChange={(event) =>
+                      updateFilter("safetensorMax", Number(event.target.value))
+                    }
+                  />
+                </div>
+              </div>
+              <button className="clear-button" onClick={clearFilters}>
+                <X size={14} /> Clear all
+              </button>
+            </aside>
+          )}
+          <div className="list-header">
+            <span>
+              <strong>{visibleModels.length}</strong> models indexed
+            </span>
+            <label className="sort-select">
+              SORT BY{" "}
+              <select
+                value={sort}
+                onChange={(event) => setSort(event.target.value as SortOption)}
+              >
+                <option value="downloads-desc">Most downloaded</option>
+                <option value="files-desc">Safetensor files</option>
+                <option value="name-asc">Name, A to Z</option>
+                <option value="name-desc">Name, Z to A</option>
+              </select>
+              <ChevronDown size={14} />
+            </label>
+          </div>
+          <div className="model-list">
+            {loading && (
+              <div className="loading-line">
+                <span />
+                Refreshing the index...
+              </div>
+            )}
+            {!loading &&
+              visibleModels.map((model, index) => (
+                <ModelCard
+                  key={model.id}
+                  model={model}
+                  rank={index + 1}
+                  selected={selected.includes(model.id)}
+                  onSelect={() => toggleSelected(model.id)}
+                />
+              ))}
+            {!loading && visibleModels.length === 0 && (
+              <div className="empty-state">
+                No models match this combination of filters.
+                <button onClick={clearFilters}>Reset search</button>
+              </div>
+            )}
+          </div>
+        </section>
+      </main>
+      <footer>
+        <span>
+          <Cloud size={14} />{" "}
+          {offline
+            ? "Working from your local index"
+            : "Synced with the public model API"}
+        </span>
+        <span>
+          {selected.length
+            ? `${selected.length} selected for comparison`
+            : "Select models to compare"}
+        </span>
+      </footer>
+    </div>
+  );
+}
+
+function FilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="filter-select">
+      <span>{label}</span>
+      <div>
+        <select
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        >
+          <option value="all">All</option>
+          {options.map((option) => (
+            <option value={option} key={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+        <ChevronDown size={14} />
+      </div>
+    </label>
+  );
+}
+
+function ModelCard({
+  model,
+  rank,
+  selected,
+  onSelect,
+}: {
+  model: ModelRecord;
+  rank: number;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <article className={`model-card ${selected ? "selected" : ""}`}>
+      <div className="rank">{String(rank).padStart(2, "0")}</div>
+      <div className="model-main">
+        <div className="model-title">
+          <h2>{model.name}</h2>
+          <span className="verified">
+            <Check size={11} />
+          </span>
+        </div>
+        <p className="model-id">{model.id}</p>
+        <div className="tag-row">
+          <span className="tag accent">{model.pipelineTag}</span>
+          <span className="tag">{model.family}</span>
+          <span className="tag">{model.weightFormat}</span>
+          <span className="tag">{model.architecture}</span>
+        </div>
+      </div>
+      <div className="model-stats">
+        <span>
+          <strong>{model.safetensorFiles}</strong> safetensors
+        </span>
+        <span>{model.useCase}</span>
+        <span>
+          <Star size={13} fill="currentColor" /> {formatCount(model.likes)}
+        </span>
+      </div>
+      <button
+        className={`select-button ${selected ? "checked" : ""}`}
+        onClick={onSelect}
+        aria-label={`Select ${model.name}`}
+      >
+        {selected ? <Check size={16} /> : "+"}
+      </button>
+    </article>
+  );
+}
+
+function formatCount(value: number): string {
+  return value >= 1000000
+    ? `${(value / 1000000).toFixed(1)}M`
+    : value >= 1000
+      ? `${(value / 1000).toFixed(1)}K`
+      : String(value);
+}

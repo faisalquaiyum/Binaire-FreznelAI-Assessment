@@ -1,5 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Button,
+  Content,
+  Dialog,
+  DialogTrigger,
+  Form,
+  Heading,
+  Item,
+  Picker,
+  ProgressCircle,
+  Text,
+  TextField,
+} from "@adobe/react-spectrum";
+import {
   Check,
   ChevronDown,
   Cloud,
@@ -43,6 +56,12 @@ export function App() {
   } | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
+  const [authMode, setAuthMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => authService.watch(setUser), []);
 
@@ -112,6 +131,33 @@ export function App() {
     setFamilyQuery("");
   };
 
+  const submitAuth = () => {
+    setAuthBusy(true);
+    setAuthError(null);
+    const action =
+      authMode === "sign-up"
+        ? authService.signUp(authEmail, authPassword)
+        : authService.signInWithEmail(authEmail, authPassword);
+    action
+      .then(() => setShowAuth(false))
+      .catch((error: unknown) =>
+        setAuthError(authService.getErrorMessage(error, "password")),
+      )
+      .finally(() => setAuthBusy(false));
+  };
+
+  const signInWithGoogle = () => {
+    setAuthBusy(true);
+    setAuthError(null);
+    authService
+      .signInWithGoogle()
+      .then(() => setShowAuth(false))
+      .catch((error: unknown) =>
+        setAuthError(authService.getErrorMessage(error, "google")),
+      )
+      .finally(() => setAuthBusy(false));
+  };
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -140,12 +186,34 @@ export function App() {
               <LogOut size={14} />
             </button>
           ) : (
-            <button
-              className="text-button"
-              onClick={() => authService.signIn()}
-            >
-              <LogIn size={15} /> Sign in
-            </button>
+            <DialogTrigger isOpen={showAuth} onOpenChange={setShowAuth}>
+              <Button
+                variant="secondary"
+                onPress={() => {
+                  setAuthMode("sign-in");
+                  setAuthError(null);
+                }}
+              >
+                <LogIn size={15} /> Sign in
+              </Button>
+              <AuthDialog
+                mode={authMode}
+                email={authEmail}
+                password={authPassword}
+                busy={authBusy}
+                error={authError}
+                configured={authService.isConfigured}
+                onEmailChange={setAuthEmail}
+                onPasswordChange={setAuthPassword}
+                onModeChange={(mode) => {
+                  setAuthMode(mode);
+                  setAuthError(null);
+                }}
+                onSubmit={submitAuth}
+                onGoogle={signInWithGoogle}
+                onClose={() => setShowAuth(false)}
+              />
+            </DialogTrigger>
           )}
         </div>
       </header>
@@ -185,9 +253,10 @@ export function App() {
                 placeholder="Any family"
               />
             </label>
-            <button
-              className={`filter-toggle ${showFilters ? "active" : ""}`}
-              onClick={() => setShowFilters((current) => !current)}
+            <Button
+              variant={showFilters ? "accent" : "primary"}
+              UNSAFE_className={`filter-toggle ${showFilters ? "active" : ""}`}
+              onPress={() => setShowFilters((current) => !current)}
             >
               <SlidersHorizontal size={17} /> Filters{" "}
               <span>
@@ -195,7 +264,7 @@ export function App() {
                   (value) => value !== "all" && value !== 0 && value !== 1000,
                 ).length || ""}
               </span>
-            </button>
+            </Button>
           </div>
           {showFilters && (
             <aside className="filter-panel">
@@ -322,24 +391,131 @@ function FilterSelect({
   options: string[];
   onChange: (value: string) => void;
 }) {
+  const items = [
+    { key: "all", label: "All" },
+    ...options.map((option) => ({ key: option, label: option })),
+  ];
+
   return (
     <label className="filter-select">
       <span>{label}</span>
       <div>
-        <select
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
+        <Picker
+          aria-label={label}
+          selectedKey={value}
+          onSelectionChange={(key) => onChange(String(key))}
+          items={items}
+          width="100%"
         >
-          <option value="all">All</option>
-          {options.map((option) => (
-            <option value={option} key={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-        <ChevronDown size={14} />
+          {(item) => (
+            <Item key={item.key} textValue={item.label}>
+              {item.label}
+            </Item>
+          )}
+        </Picker>
       </div>
     </label>
+  );
+}
+
+function AuthDialog({
+  mode,
+  email,
+  password,
+  busy,
+  error,
+  configured,
+  onEmailChange,
+  onPasswordChange,
+  onModeChange,
+  onSubmit,
+  onGoogle,
+  onClose,
+}: {
+  mode: "sign-in" | "sign-up";
+  email: string;
+  password: string;
+  busy: boolean;
+  error: string | null;
+  configured: boolean;
+  onEmailChange: (value: string) => void;
+  onPasswordChange: (value: string) => void;
+  onModeChange: (mode: "sign-in" | "sign-up") => void;
+  onSubmit: () => void;
+  onGoogle: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog size="S">
+      <Heading>
+        {mode === "sign-up" ? "Create your account" : "Welcome back"}
+      </Heading>
+      <Button variant="secondary" onPress={onClose} aria-label="Close authentication dialog">
+         <X size={16} />
+       </Button>
+      <Content>
+        <Text>
+          {configured
+            ? "Use Firebase Authentication to save your model workspace."
+            : "Firebase configuration is missing from this environment."}
+        </Text>
+        <Form
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSubmit();
+          }}
+        >
+          <TextField
+            label="Email"
+            type="email"
+            value={email}
+            onChange={onEmailChange}
+            isRequired
+          />
+          <TextField
+            label="Password"
+            type="password"
+            value={password}
+            onChange={onPasswordChange}
+            isRequired
+          />
+          <div>
+            {error && <Text UNSAFE_className="auth-error">{error}</Text>}
+          </div>
+          <Button
+            type="submit"
+            variant="accent"
+            isDisabled={busy || !configured}
+          >
+            {busy ? (
+              <ProgressCircle size="S" isIndeterminate />
+            ) : mode === "sign-up" ? (
+              "Create account"
+            ) : (
+              "Sign in"
+            )}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onPress={onGoogle}
+            isDisabled={busy || !configured}
+          >
+            Continue with Google
+          </Button>
+        </Form>
+        <Button
+          variant="secondary"
+          onPress={() =>
+            onModeChange(mode === "sign-up" ? "sign-in" : "sign-up")
+          }
+        >
+          {mode === "sign-up"
+            ? "Already have an account? Sign in"
+            : "Need an account? Sign up"}
+        </Button>
+      </Content>
+    </Dialog>
   );
 }
 

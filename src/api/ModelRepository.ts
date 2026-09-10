@@ -1,6 +1,6 @@
 import type { ModelRecord } from '../types/model';
 
-const API_URL = import.meta.env.VITE_MODELS_API_URL || 'https://binaire.app/hf-models-api.json';
+const API_URL = import.meta.env.VITE_MODELS_API_URL || '/api/models';
 
 const fallbackModels: ModelRecord[] = [
   { id: 'meta-llama/Llama-3.1-8B', author: 'meta-llama', name: 'Llama 3.1 8B (Instruct)', family: 'Llama (Meta)', pipelineTag: 'text-generation', architecture: 'Dense', useCase: 'Text Generation', weightFormat: 'BF16', tags: ['text-generation', 'llama', 'safetensors'], downloads: 0, likes: 0, safetensorFiles: 201, parameterLabel: '8B', lastModified: '2025-01-15' },
@@ -37,10 +37,22 @@ function extractModels(payload: unknown): Record<string, unknown>[] {
 export class ModelRepository {
   private requestController: AbortController | null = null;
 
+  private readCache(): ModelRecord[] {
+    try {
+      const cached = localStorage.getItem('atlas-model-cache');
+      if (!cached) return fallbackModels;
+      const models = JSON.parse(cached) as unknown;
+      return Array.isArray(models) ? models as ModelRecord[] : fallbackModels;
+    } catch {
+      return fallbackModels;
+    }
+  }
+
   fetchModels(query: string): Promise<{ models: ModelRecord[]; fromCache: boolean }> {
+    if (!navigator.onLine) return Promise.resolve({ models: this.readCache(), fromCache: true });
     if (this.requestController) this.requestController.abort();
     this.requestController = new AbortController();
-    const url = new URL(API_URL);
+    const url = new URL(API_URL, window.location.origin);
     if (API_URL.includes('huggingface.co')) {
       url.searchParams.set('limit', '100');
       url.searchParams.set('full', 'true');
@@ -58,9 +70,7 @@ export class ModelRepository {
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return Promise.reject(error);
-        const cached = localStorage.getItem('atlas-model-cache');
-        const models = cached ? JSON.parse(cached) as ModelRecord[] : fallbackModels;
-        return { models, fromCache: true };
+        return { models: this.readCache(), fromCache: true };
       });
   }
 }

@@ -242,6 +242,7 @@ main {
   gap: 14px;
   background: #e9ead9;
   border-bottom: 1px solid var(--line);
+  animation: panel-in 0.22s ease-out both;
 }
 .filter-select > span,
 .range-field > span {
@@ -458,6 +459,10 @@ main {
   background: transparent;
   font-size: 11px;
 }
+.auth-error {
+  color: var(--orange);
+  font-size: 12px;
+}
 footer {
   width: min(1200px, calc(100% - 40px));
   margin: 50px auto 26px;
@@ -486,6 +491,16 @@ footer span {
 @keyframes pulse {
   50% {
     opacity: 0.3;
+  }
+}
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 @media (max-width: 750px) {
